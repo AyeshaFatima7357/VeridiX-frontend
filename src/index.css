@@ -1,0 +1,201 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* VeridiX design system — forensic / cyber-investigation aesthetic.
+   All colors are HSL. Use semantic tokens, never hardcoded colors in components. */
+
+@layer base {
+  :root {
+    /* Deep forensic background */
+    --background: 222 39% 6%;
+    --foreground: 180 18% 92%;
+
+    --card: 222 32% 9%;
+    --card-foreground: 180 18% 92%;
+
+    --popover: 222 32% 9%;
+    --popover-foreground: 180 18% 92%;
+
+    /* Cyan — verification / scanning */
+    --primary: 174 84% 52%;
+    --primary-foreground: 222 47% 8%;
+    --primary-glow: 178 90% 60%;
+
+    --secondary: 222 28% 14%;
+    --secondary-foreground: 180 18% 92%;
+
+    --muted: 222 24% 13%;
+    --muted-foreground: 215 16% 60%;
+
+    --accent: 200 95% 55%;
+    --accent-foreground: 222 47% 8%;
+
+    /* Verdict colors */
+    --verdict-safe: 152 70% 48%;
+    --verdict-suspicious: 38 95% 58%;
+    --verdict-fake: 358 82% 60%;
+
+    --destructive: 358 82% 60%;
+    --destructive-foreground: 180 18% 95%;
+
+    --border: 222 22% 16%;
+    --input: 222 22% 14%;
+    --ring: 174 84% 52%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-hero: radial-gradient(ellipse at top, hsl(174 84% 52% / 0.15), transparent 60%),
+                     radial-gradient(ellipse at bottom right, hsl(200 95% 55% / 0.1), transparent 55%),
+                     linear-gradient(180deg, hsl(222 39% 6%), hsl(222 45% 4%));
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-scan: linear-gradient(180deg, transparent, hsl(var(--primary) / 0.7), transparent);
+    --gradient-verdict-safe: linear-gradient(135deg, hsl(var(--verdict-safe) / 0.2), hsl(var(--verdict-safe) / 0.05));
+    --gradient-verdict-warn: linear-gradient(135deg, hsl(var(--verdict-suspicious) / 0.2), hsl(var(--verdict-suspicious) / 0.05));
+    --gradient-verdict-fake: linear-gradient(135deg, hsl(var(--verdict-fake) / 0.25), hsl(var(--verdict-fake) / 0.05));
+
+    /* Shadows / glows */
+    --shadow-glow: 0 0 60px hsl(var(--primary) / 0.35);
+    --shadow-card: 0 20px 60px -20px hsl(222 60% 2% / 0.7), 0 0 0 1px hsl(var(--border));
+    --shadow-fake: 0 0 80px hsl(var(--verdict-fake) / 0.3);
+
+    /* Fonts */
+    --font-display: 'Space Grotesk', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    --transition-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    font-feature-settings: "ss01", "cv11";
+    background: var(--gradient-hero);
+    background-attachment: fixed;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer utilities {
+  .grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--primary) / 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--primary) / 0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .text-gradient {
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .glow-primary {
+    box-shadow: var(--shadow-glow);
+  }
+  .scan-line {
+    background: var(--gradient-scan);
+  }
+}
+
+@keyframes veridix-progress {
+  0%   { width: 0%; }
+  100% { width: 95%; }
+}
+
+@keyframes veridix-msg-fade {
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes veridix-dot-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50%       { opacity: 1;    transform: scale(1.2); }
+}
+
+@keyframes scan {
+  0% { transform: translateY(0%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+.animate-scan {
+  animation: scan 2.2s linear infinite;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.6); }
+  50% { box-shadow: 0 0 0 14px hsl(var(--primary) / 0); }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+@keyframes float-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-float-up {
+  animation: float-up 0.6s var(--transition-smooth) both;
+}
+
+/* ── Page fade-in transition ─────────────────────────────────────────────── */
+
+.fade-in {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity:   0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity:   1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Mobile responsiveness — global rules ────────────────────────────────── */
+
+/* Minimum touch target for all buttons */
+button, a[role="button"] {
+  min-height: 44px;
+}
+
+/* Prevent iOS zoom on input focus — minimum 16px font size */
+input[type="text"],
+input[type="url"],
+input[type="email"],
+input[type="search"],
+textarea {
+  font-size: 16px !important;
+}
+
+/* Heatmap image — never overflow on mobile */
+img {
+  max-width: 100%;
+  height:    auto;
+}
+
+/* Prevent any horizontal overflow at 360px */
+* {
+  box-sizing: border-box;
+}
