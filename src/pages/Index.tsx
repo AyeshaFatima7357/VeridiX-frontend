@@ -1,25 +1,27 @@
 import { SiteHeader } from "@/components/SiteHeader";
-import { Hero } from "@/components/Hero";
-import { Detector } from "@/components/Detector";
-import { Pipeline } from "@/components/Pipeline";
-import { TechStack } from "@/components/TechStack";
-import { Impact } from "@/components/Impact";
+import { Hero }       from "@/components/Hero";
+import { Detector }   from "@/components/Detector";
+import { Pipeline }   from "@/components/Pipeline";
+import { TechStack }  from "@/components/TechStack";
+import { Impact }     from "@/components/Impact";
 import { SiteFooter } from "@/components/SiteFooter";
 
-const Index = () => {
-  return (
-    <div className="min-h-screen">
-      <SiteHeader />
-      <main>
-        <Hero />
-        <Detector />
-        <Pipeline />
-        <TechStack />
-        <Impact />
-      </main>
-      <SiteFooter />
-    </div>
-  );
-};
+const Index = () => (
+  <div className="min-h-screen" style={{ background: "#0A0E1A" }}>
+    <SiteHeader />
+    <main>
+      <Hero />
+      {/* id="analyze" lives inside Detector */}
+      <Detector />
+      {/* id="how" lives inside Pipeline */}
+      <Pipeline />
+      {/* id="stack" lives inside TechStack */}
+      <TechStack />
+      {/* id="impact" lives inside Impact */}
+      <Impact />
+    </main>
+    <SiteFooter />
+  </div>
+);
 
 export default Index;
