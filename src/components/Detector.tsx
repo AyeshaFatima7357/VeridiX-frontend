@@ -9,6 +9,7 @@ import { HeatmapCanvas } from "./HeatmapCanvas";
 import { ScanningOverlay } from "./ScanningOverlay";
 import { VerdictBanner } from "./VerdictBanner";
 import { ModelBreakdown } from "./ModelBreakdown";
+import { GANIdentifier } from "./GANIdentifier";
 import heroImage from "@/assets/hero-face.jpg";
 
 type State = "idle" | "scanning" | "done";
@@ -277,6 +278,14 @@ export const Detector = () => {
               {result && (
                 <>
                   <VerdictBanner result={result} />
+
+                  {/* GAN Tool Identifier — only for deepfake verdict */}
+                  <GANIdentifier
+                    confidenceScore={result.overall}
+                    findings={result.models.flatMap((m) => m.signals)}
+                    isVisible={result.verdict === "deepfake" || result.overall > 40}
+                  />
+
                   <div className="rounded-xl border border-border bg-card p-5">
                     <div className="flex items-start gap-3">
                       <Fingerprint className="h-5 w-5 shrink-0 text-primary" />
