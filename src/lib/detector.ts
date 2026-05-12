@@ -12,12 +12,8 @@ export type AnalysisResult = {
   overall: number;
   verdict: Verdict;
   models: ModelScore[];
-  /**
-   * Heatmap hotspots — ONLY populated when a face is detected in the image.
-   * Empty array = no face found = no hotspots drawn.
-   */
   hotspots: { x: number; y: number; r: number; intensity: number; label: string }[];
-  faceDetected: boolean;   // NEW — drives heatmap rendering decision
+  faceDetected: boolean;
   framesAnalyzed: number;
   durationMs: number;
   explanation: string[];
@@ -39,15 +35,16 @@ const MODELS = [
         "Skin texture discontinuity under lighting shift",
         "Eye region pixel inconsistency",
         "Lip sync mismatch with audio envelope",
+        "Facial muscle movement outside physiological range",
+        "Asymmetric eye blinking pattern",
       ],
       authentic: [
         "Natural blink frequency confirmed",
-        "Hairline boundary consistent",
+        "Hairline boundary consistent with real hair",
         "Facial symmetry within human range",
-        "Skin texture natural across lighting",
-      ],
-      noface: [
-        "No face region detected — model skipped",
+        "Skin texture natural across lighting conditions",
+        "Eye movement trajectory physiologically normal",
+        "Facial muscle transitions smooth and natural",
       ],
     },
   },
@@ -57,21 +54,19 @@ const MODELS = [
     short: "XceptionNet + FFT",
     signals: {
       fake: [
-        "GAN spectral fingerprint detected",
+        "GAN spectral fingerprint detected in high-frequency band",
         "DCT coefficient anomalies in mid-frequency band",
         "Periodic high-frequency residual pattern",
         "Compression-aware noise mismatch",
-        "Upsampling artefact grid visible in FFT",
+        "Upsampling artefact grid visible in FFT analysis",
+        "Unnatural smoothness in frequency spectrum",
       ],
       authentic: [
         "No GAN spectral fingerprint found",
-        "DCT coefficients within natural distribution",
-        "Frequency noise consistent with optical capture",
+        "DCT coefficients within natural camera distribution",
+        "Frequency noise consistent with optical sensor capture",
         "No upsampling artefacts detected",
-      ],
-      noface: [
-        "Frequency analysis completed on full frame",
-        "No face-specific frequency anomalies",
+        "Natural film grain pattern in frequency domain",
       ],
     },
   },
@@ -86,15 +81,14 @@ const MODELS = [
         "Lighting direction drift across frames",
         "Frame-to-frame identity flicker",
         "Unnatural eye movement trajectory",
+        "Inconsistent shadow direction between face and background",
       ],
       authentic: [
         "Micro-expression timing physiologically consistent",
         "Head pose velocity within human range",
         "Lighting direction stable across frames",
         "Identity consistent frame-to-frame",
-      ],
-      noface: [
-        "No face tracked — temporal check not applicable",
+        "Shadow direction consistent with scene lighting",
       ],
     },
   },
@@ -127,94 +121,185 @@ function verdictFor(score: number): Verdict {
 
 // ── Face detection heuristic ─────────────────────────────────────────────────
 /**
- * Heuristic: decide whether the uploaded file likely contains a human face.
- * Uses filename keywords and MIME type as signals.
- * In production this would be replaced by a real face detector (MediaPipe etc.)
+ * Determines whether the uploaded file likely contains a human face.
  *
- * Returns true  → face likely present → hotspots allowed
- * Returns false → no face → hotspots suppressed entirely
+ * DEFAULT IS TRUE — most images uploaded to a deepfake detector contain people.
+ * Only returns false when there are STRONG signals that no face is present
+ * (e.g. filename explicitly says "logo", "landscape", "trophy", etc.)
+ *
+ * In production this would be replaced by MediaPipe or RetinaFace.
  */
-function likelyContainsFace(file: File, seed: number): boolean {
+function likelyContainsFace(file: File): boolean {
   const lower = file.name.toLowerCase();
 
-  // Strong positive signals — file name suggests a person/face
-  const faceKeywords = [
-    "face", "person", "selfie", "portrait", "headshot", "deepfake",
-    "fake", "real", "human", "man", "woman", "girl", "boy", "people",
-    "profile", "id", "passport", "photo", "pic", "img",
+  // Only suppress face detection for clearly non-person content
+  const definitelyNoFace = [
+    "logo", "banner", "icon", "trophy", "award", "building", "architecture",
+    "landscape", "nature", "mountain", "ocean", "sky", "forest", "tree",
+    "food", "meal", "dish", "product", "item", "object",
+    "chart", "graph", "diagram", "document", "screenshot", "ui", "wireframe",
+    "wallpaper", "texture", "pattern", "abstract",
+    "car", "vehicle", "animal", "pet", "dog", "cat", "bird",
   ];
-  if (faceKeywords.some((k) => lower.includes(k))) return true;
 
-  // Strong negative signals — clearly not a face
-  const noFaceKeywords = [
-    "logo", "banner", "poster", "award", "trophy", "building", "landscape",
-    "nature", "food", "product", "screenshot", "document", "chart", "graph",
-    "icon", "wallpaper", "background", "texture", "pattern",
-  ];
-  if (noFaceKeywords.some((k) => lower.includes(k))) return false;
+  if (definitelyNoFace.some((k) => lower.includes(k))) return false;
 
-  // For ambiguous filenames (IMG_1234.jpg etc.) use a probabilistic decision
-  // biased toward "face present" since most uploaded images in a deepfake
-  // detector context are likely to contain faces (~70% prior)
-  return seed > 0.30;
+  // Everything else — assume face is present
+  // This covers: IMG_1234.jpg, photo.png, selfie, portrait, deepfake,
+  // football.jpg, group.jpg, wedding.jpg, etc.
+  return true;
 }
 
-// ── Varied explanation pools ─────────────────────────────────────────────────
+// ── Specific explanation builders ─────────────────────────────────────────────
 
-const DEEPFAKE_EXPLANATIONS = [
-  (overall: number, signal: string) =>
-    `This image shows clear signs of AI manipulation. The ensemble scored ${overall}% manipulation probability — well above the threshold for a deepfake verdict. The strongest indicator was "${signal}". The facial geometry contains inconsistencies that no real camera would produce.`,
-  (overall: number, signal: string) =>
-    `All three detection models flagged this content as manipulated (${overall}% confidence). The primary red flag is "${signal}". Deepfake generation tools leave behind subtle frequency-domain fingerprints that our analyzer detected in this image.`,
-  (overall: number, signal: string) =>
-    `High-confidence deepfake detected at ${overall}%. The facial region shows artefacts consistent with GAN-based synthesis — specifically "${signal}". Do not trust this content or share it without verification.`,
-  (overall: number, signal: string) =>
-    `The 3-model ensemble reached strong agreement: this is almost certainly AI-generated or manipulated content (${overall}% score). Key evidence: "${signal}". The frequency spectrum of this image does not match optically captured photographs.`,
-  (overall: number, signal: string) =>
-    `Manipulation detected with ${overall}% confidence. The tell-tale sign here is "${signal}" — a pattern that consistently appears in AI-synthesised faces but not in real photographs. Treat this content as untrustworthy.`,
-];
+/**
+ * Build a specific, detailed plain-English explanation based on
+ * the actual signals detected by each model.
+ */
+function buildExplanation(
+  verdict: Verdict,
+  overall: number,
+  models: ModelScore[],
+  faceDetected: boolean,
+  pickIndex: number
+): string[] {
+  const facialModel   = models.find((m) => m.id === "facial")!;
+  const freqModel     = models.find((m) => m.id === "freq")!;
+  const temporalModel = models.find((m) => m.id === "temporal")!;
 
-const SUSPICIOUS_EXPLANATIONS = [
-  (overall: number) =>
-    `The analysis returned mixed signals — ${overall}% manipulation probability puts this in the uncertain zone. Some models flagged anomalies while others found nothing conclusive. If this content comes from an untrusted source, treat it with caution.`,
-  (overall: number) =>
-    `Inconclusive result at ${overall}%. The image has some characteristics that could indicate manipulation, but the evidence isn't strong enough for a definitive verdict. Consider the source before sharing.`,
-  (overall: number) =>
-    `This content sits in the grey zone (${overall}% score). The frequency domain shows minor irregularities, but they could also be caused by heavy JPEG compression or image editing. Manual review is recommended.`,
-  (overall: number) =>
-    `Uncertain verdict — ${overall}% manipulation probability. Two of the three models disagree on this one. The facial region looks mostly natural, but there are subtle texture inconsistencies worth noting. Proceed with caution.`,
-  (overall: number) =>
-    `The ensemble is not confident either way (${overall}%). Some artefacts were detected but they fall below the deepfake threshold. This could be a heavily edited but authentic image, or a low-quality deepfake. Verify the source independently.`,
-];
+  const topSignals = models
+    .flatMap((m) => m.signals)
+    .slice(0, 3);
 
-const AUTHENTIC_EXPLANATIONS = [
-  (overall: number) =>
-    `This image appears to be genuine. The manipulation probability is only ${overall}% — well below the threshold for concern. No GAN fingerprints were found, and the facial geometry is consistent with natural human anatomy.`,
-  (overall: number) =>
-    `No signs of deepfake manipulation detected (${overall}% score). The frequency spectrum matches optically captured images, and all facial landmarks behave as expected. This content is likely authentic.`,
-  (overall: number) =>
-    `All three models agree: this looks real (${overall}% manipulation probability). The skin texture, lighting consistency, and facial symmetry are all within the natural range. No AI synthesis artefacts were found.`,
-  (overall: number) =>
-    `Clean result — ${overall}% manipulation probability. The image passes all three detection checks. There are no spectral anomalies, no boundary artefacts, and no signs of GAN upsampling. Content appears authentic.`,
-  (overall: number) =>
-    `This image shows no evidence of AI manipulation (${overall}% score). The pixel-level noise pattern is consistent with a real camera sensor, and no deepfake fingerprints were detected in the frequency domain.`,
-];
+  const signalList = topSignals.length > 0
+    ? topSignals.map((s) => `"${s}"`).join(", ")
+    : "general frequency anomalies";
 
-const NO_FACE_AUTHENTIC_EXPLANATIONS = [
-  (overall: number) =>
-    `No human face was detected in this image. The frequency domain analysis found no AI generation artefacts (${overall}% score). The image appears to be an authentic, unmanipulated photograph.`,
-  (overall: number) =>
-    `This image does not contain a face, so facial analysis was skipped. The overall pixel and frequency analysis returned ${overall}% — no signs of AI manipulation found. Content appears genuine.`,
-  (overall: number) =>
-    `No face region found. The image was analysed at the frequency and texture level only. Result: ${overall}% manipulation probability — consistent with an authentic, unedited photograph.`,
-];
+  if (verdict === "deepfake") {
+    const DEEPFAKE = [
+      () =>
+        `This image has been flagged as a deepfake with ${overall}% confidence. ` +
+        `The Facial Inconsistency Detector (${facialModel.score}%) identified ${facialModel.signals[0] ?? "facial artefacts"} — ` +
+        `a hallmark of AI face-swapping tools. ` +
+        `The Frequency Domain Analyzer (${freqModel.score}%) found ${freqModel.signals[0] ?? "spectral anomalies"} ` +
+        `in the image's pixel structure, which real cameras do not produce. ` +
+        `Do not trust or share this content.`,
 
-const NO_FACE_SUSPICIOUS_EXPLANATIONS = [
-  (overall: number) =>
-    `No human face detected. The frequency analysis returned ${overall}% — some minor anomalies were found in the image's noise pattern, but nothing conclusive. The image may have been edited or processed.`,
-  (overall: number) =>
-    `This image contains no face. Frequency-domain analysis flagged some irregularities (${overall}% score), which could indicate image editing or heavy compression. Cannot determine deepfake status without a face.`,
-];
+      () =>
+        `Strong deepfake indicators detected at ${overall}% manipulation probability. ` +
+        `Key evidence: ${signalList}. ` +
+        `The face in this image shows signs of AI synthesis — the skin texture and boundary regions ` +
+        `contain artefacts that are invisible to the human eye but clearly visible in frequency analysis. ` +
+        `This content should be treated as fabricated.`,
+
+      () =>
+        `All three models agree this is manipulated content (${overall}%). ` +
+        `The facial region scored ${facialModel.score}% on the inconsistency detector — ` +
+        `specifically showing ${facialModel.signals[0] ?? "boundary artefacts"}. ` +
+        `The frequency spectrum (${freqModel.score}%) reveals ${freqModel.signals[0] ?? "GAN fingerprints"} ` +
+        `that are characteristic of deepfake generation tools like FaceSwap or DeepFaceLab. ` +
+        `This image is almost certainly AI-generated or manipulated.`,
+
+      () =>
+        `Deepfake detected — ${overall}% manipulation probability. ` +
+        `The strongest signal is ${topSignals[0] ?? "frequency anomaly"}, detected by the ` +
+        `${models.sort((a, b) => b.score - a.score)[0].name} at ` +
+        `${models.sort((a, b) => b.score - a.score)[0].score}% confidence. ` +
+        `The temporal consistency checker (${temporalModel.score}%) also flagged ` +
+        `${temporalModel.signals[0] ?? "frame inconsistencies"}, ` +
+        `which indicates the face was composited onto this image rather than captured naturally.`,
+
+      () =>
+        `This content is highly likely to be a deepfake (${overall}% score). ` +
+        `The pixel-level analysis found ${freqModel.signals[0] ?? "GAN spectral fingerprints"} — ` +
+        `a pattern left behind by AI generation models that cannot be removed by compression or resizing. ` +
+        `Additionally, the facial geometry shows ${facialModel.signals[0] ?? "unnatural symmetry"}, ` +
+        `which is a known artefact of face-swapping algorithms. ` +
+        `Treat this as fabricated content.`,
+    ];
+    return [DEEPFAKE[pickIndex % DEEPFAKE.length]()];
+  }
+
+  if (verdict === "suspicious") {
+    const SUSPICIOUS = [
+      () =>
+        `This image returned a suspicious result at ${overall}% manipulation probability. ` +
+        `The facial analysis (${facialModel.score}%) detected ${facialModel.signals[0] ?? "minor inconsistencies"} ` +
+        `in the face region, but the evidence is not conclusive. ` +
+        `The frequency domain (${freqModel.score}%) shows ${freqModel.signals[0] ?? "some anomalies"} ` +
+        `that could be caused by heavy JPEG compression or image editing. ` +
+        `Verify the source before sharing.`,
+
+      () =>
+        `Mixed signals detected — ${overall}% manipulation probability. ` +
+        `Two of the three models flagged anomalies: ${signalList}. ` +
+        `However, these patterns can also appear in heavily compressed or edited authentic images. ` +
+        `If this content comes from an untrusted source, treat it with caution.`,
+
+      () =>
+        `The ensemble returned an uncertain verdict at ${overall}%. ` +
+        `The face in this image shows ${facialModel.signals[0] ?? "minor texture inconsistencies"} ` +
+        `that are slightly outside the normal range, but not definitively fake. ` +
+        `The frequency analysis (${freqModel.score}%) found ${freqModel.signals[0] ?? "minor spectral irregularities"}. ` +
+        `Manual review is recommended — check the highlighted regions in the heatmap.`,
+
+      () =>
+        `Suspicious content at ${overall}% — this sits in the grey zone between authentic and fake. ` +
+        `The strongest signal is ${topSignals[0] ?? "frequency anomaly"} (${facialModel.score}% facial score). ` +
+        `This could be a low-quality deepfake, a heavily edited photo, or an authentic image ` +
+        `with unusual compression artefacts. Consider the context and source carefully.`,
+
+      () =>
+        `Inconclusive result — ${overall}% manipulation probability. ` +
+        `The facial inconsistency detector scored ${facialModel.score}%, flagging ` +
+        `${facialModel.signals[0] ?? "minor boundary artefacts"}. ` +
+        `The temporal checker (${temporalModel.score}%) found ${temporalModel.signals[0] ?? "some inconsistencies"}. ` +
+        `Neither finding is strong enough for a definitive deepfake verdict, ` +
+        `but the content warrants caution.`,
+    ];
+    return [SUSPICIOUS[pickIndex % SUSPICIOUS.length]()];
+  }
+
+  // Authentic
+  const AUTHENTIC = [
+    () =>
+      `This image appears to be genuine (${overall}% manipulation probability — well below the threshold). ` +
+      `The facial analysis (${facialModel.score}%) found ${facialModel.signals[0] ?? "natural facial geometry"} ` +
+      `consistent with a real photograph. ` +
+      `No GAN spectral fingerprints were detected in the frequency domain (${freqModel.score}%). ` +
+      `This content is likely authentic.`,
+
+    () =>
+      `No signs of deepfake manipulation detected — ${overall}% score. ` +
+      `All three models agree: the face in this image shows ${facialModel.signals[0] ?? "natural characteristics"}, ` +
+      `the frequency spectrum matches optically captured images, ` +
+      `and the temporal consistency is within human physiological range. ` +
+      `Content appears authentic.`,
+
+    () =>
+      `Clean result — ${overall}% manipulation probability. ` +
+      `The pixel-level noise pattern is consistent with a real camera sensor. ` +
+      `The facial region scored ${facialModel.score}% on the inconsistency detector — ` +
+      `showing ${facialModel.signals[0] ?? "natural skin texture and boundary consistency"}. ` +
+      `No AI synthesis artefacts were found in any of the three analysis passes.`,
+
+    () =>
+      `This image passes all three detection checks with ${overall}% manipulation probability. ` +
+      `The frequency domain analysis (${freqModel.score}%) found ${freqModel.signals[0] ?? "no spectral anomalies"}. ` +
+      `The face shows ${facialModel.signals[0] ?? "natural symmetry and texture"} — ` +
+      `characteristics that AI generation tools consistently fail to replicate perfectly. ` +
+      `No action required.`,
+
+    () =>
+      `Likely authentic — ${overall}% score. ` +
+      `The ensemble of three models found no evidence of AI manipulation. ` +
+      `Key indicators of authenticity: ${facialModel.signals[0] ?? "natural facial geometry"}, ` +
+      `${freqModel.signals[0] ?? "clean frequency spectrum"}, ` +
+      `and ${temporalModel.signals[0] ?? "consistent temporal patterns"}. ` +
+      `This content appears to be a genuine, unmanipulated image.`,
+  ];
+  return [AUTHENTIC[pickIndex % AUTHENTIC.length]()];
+}
 
 // ── Main analyzeMedia function ───────────────────────────────────────────────
 
@@ -231,23 +316,18 @@ export function analyzeMedia(file: File): AnalysisResult {
   const base    = Math.max(5, Math.min(95, Math.round(seed * 100 + bias + (r() - 0.5) * 20)));
   const verdict = verdictFor(base);
 
-  // Determine face presence
-  const faceDetected = likelyContainsFace(file, seed);
+  // Face detection — default TRUE, only false for clearly non-person content
+  const faceDetected = likelyContainsFace(file);
 
-  // Build model scores
+  // Build model scores with appropriate signals
   const models: ModelScore[] = MODELS.map((m) => {
     const drift = (r() - 0.5) * 22;
     const score = Math.max(2, Math.min(98, Math.round(base + drift)));
 
     let signalPool: string[];
-    if (!faceDetected && m.id === "facial") {
-      signalPool = m.signals.noface;
-    } else if (!faceDetected && m.id === "temporal") {
-      signalPool = m.signals.noface;
-    } else if (score > 65) {
+    if (score > 65) {
       signalPool = m.signals.fake;
     } else if (score > 30) {
-      // Mix of fake and authentic signals for suspicious
       signalPool = [...m.signals.fake.slice(0, 2), ...m.signals.authentic.slice(0, 2)];
     } else {
       signalPool = m.signals.authentic;
@@ -260,62 +340,42 @@ export function analyzeMedia(file: File): AnalysisResult {
 
   const overall = Math.round(models.reduce((a, b) => a + b.score, 0) / models.length);
 
-  // ── Hotspots — ONLY when face is detected ──────────────────────────────────
+  // ── Hotspots — only when face detected AND manipulation found ──────────────
   const hotspots: AnalysisResult["hotspots"] = [];
 
   if (faceDetected && verdict !== "authentic") {
     const faceRegions = [
-      { x: 0.5,  y: 0.38, label: "Eye region" },
-      { x: 0.5,  y: 0.60, label: "Mouth boundary" },
-      { x: 0.30, y: 0.50, label: "Left jawline" },
-      { x: 0.70, y: 0.50, label: "Right jawline" },
-      { x: 0.5,  y: 0.26, label: "Hairline" },
+      { x: 0.50, y: 0.35, label: "Eye region" },
+      { x: 0.50, y: 0.62, label: "Mouth boundary" },
+      { x: 0.28, y: 0.52, label: "Left jawline" },
+      { x: 0.72, y: 0.52, label: "Right jawline" },
+      { x: 0.50, y: 0.22, label: "Hairline" },
     ];
-    const count = verdict === "deepfake" ? 3 + Math.floor(r() * 2) : 1 + Math.floor(r() * 2);
+    const count    = verdict === "deepfake" ? 3 + Math.floor(r() * 2) : 1 + Math.floor(r() * 2);
     const shuffled = [...faceRegions].sort(() => r() - 0.5).slice(0, count);
     for (const reg of shuffled) {
       hotspots.push({
-        x:         reg.x + (r() - 0.5) * 0.05,
-        y:         reg.y + (r() - 0.5) * 0.05,
-        r:         0.07 + r() * 0.06,
-        intensity: verdict === "deepfake" ? 0.6 + r() * 0.4 : 0.3 + r() * 0.3,
+        x:         reg.x + (r() - 0.5) * 0.04,
+        y:         reg.y + (r() - 0.5) * 0.04,
+        r:         0.07 + r() * 0.05,
+        intensity: verdict === "deepfake" ? 0.65 + r() * 0.35 : 0.35 + r() * 0.3,
         label:     reg.label,
       });
     }
   }
-  // If no face detected OR verdict is authentic → hotspots stays []
 
-  // ── Varied plain-English explanation ──────────────────────────────────────
-  const pickIndex = Math.floor(r() * 5);   // 0-4, deterministic per file
-  const topModel  = [...models].sort((a, b) => b.score - a.score)[0];
-  const topSignal = topModel.signals[0] ?? "spectral anomaly";
-
-  let explanation: string[];
-
-  if (!faceDetected) {
-    if (verdict === "authentic") {
-      const pool = NO_FACE_AUTHENTIC_EXPLANATIONS;
-      explanation = [pool[pickIndex % pool.length](overall)];
-    } else {
-      const pool = NO_FACE_SUSPICIOUS_EXPLANATIONS;
-      explanation = [pool[pickIndex % pool.length](overall)];
-    }
-  } else if (verdict === "deepfake") {
-    explanation = [DEEPFAKE_EXPLANATIONS[pickIndex](overall, topSignal)];
-  } else if (verdict === "suspicious") {
-    explanation = [SUSPICIOUS_EXPLANATIONS[pickIndex](overall)];
-  } else {
-    explanation = [AUTHENTIC_EXPLANATIONS[pickIndex](overall)];
-  }
+  // ── Explanation ────────────────────────────────────────────────────────────
+  const pickIndex  = Math.floor(r() * 5);
+  const explanation = buildExplanation(verdict, overall, models, faceDetected, pickIndex);
 
   // ── Fingerprint ────────────────────────────────────────────────────────────
   const fingerprintPool = ["StyleGAN3", "FaceSwap", "DeepFaceLab", "SimSwap", "Diffusion-FS"];
   const fingerprint =
-    verdict === "authentic" || !faceDetected
+    verdict === "authentic"
       ? "—"
       : fingerprintPool[Math.floor(r() * fingerprintPool.length)];
 
-  const isVideo       = file.type.startsWith("video");
+  const isVideo        = file.type.startsWith("video");
   const framesAnalyzed = isVideo ? 24 + Math.floor(r() * 36) : 1;
 
   return {

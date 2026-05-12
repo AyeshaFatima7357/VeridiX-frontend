@@ -60,13 +60,12 @@ export const VerdictBanner = ({ result }: { result: AnalysisResult }) => {
         </div>
       </div>
 
-      {/* ── Face detection notice ── */}
+      {/* ── Face detection notice — only shown for truly non-face content ── */}
       {!result.faceDetected && (
         <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-4 py-2.5">
           <UserX className="h-4 w-4 shrink-0 text-muted-foreground" />
           <p className="text-xs text-muted-foreground">
-            No human face detected in this image — facial analysis was skipped.
-            Results are based on frequency-domain and texture analysis only.
+            No human face detected — analysis based on frequency-domain and texture signals only.
           </p>
         </div>
       )}
